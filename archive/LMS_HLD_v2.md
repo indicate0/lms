@@ -1,5 +1,5 @@
-# High-Level Design — Loan Management System (LMS) v2
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# High-Level Design — Alpha LMS v2
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Scope:** This document describes the architecture, modules, integrations, and compliance framework of the LMS only.
 > The LOS (Loan Origination System) is a separate service; it ends at disbursal confirmation + UTR receipt and hands off to the LMS via event.

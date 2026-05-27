@@ -1,11 +1,11 @@
 # LMS Calculations & Charges Reference
-## True Loan Bazaar (TLB) — Post-Disbursal Calculations
+## Alpha LMS — Post-Disbursal Calculations
 
 > **Scope:** All formulas, worked examples, and accounting entries the LMS engines use after
 > a loan is disbursed. Pre-disbursal calculations (FOIR, risk scoring, processing fee deduction,
 > net disbursed computation) belong to the LOS and are documented in R&D-docs/v0/.
 >
-> **Sources:** TLB_Calculations_and_Charges.md · TLB_Payment_Flows_and_Calculations.md
+> **Sources:** Alpha LMS_Calculations_and_Charges.md · Alpha LMS_Payment_Flows_and_Calculations.md
 > **Regulatory basis:** RBI DLG 2022 · RBI Fair Practice Code · Penal Charges Circular (Jan 2024)
 > · CGST Act 2017 · IT Act 2000 (Section 80E)
 
@@ -655,6 +655,6 @@ GST ON CHARGES:
 
 ---
 
-*True Loan Bazaar (TLB) | LMS Calculations Reference v1.0 | Confidential*
-*Sources: TLB_Calculations_and_Charges.md · TLB_Payment_Flows_and_Calculations.md*
+*Alpha LMS | LMS Calculations Reference v1.0 | Confidential*
+*Sources: Alpha LMS_Calculations_and_Charges.md · Alpha LMS_Payment_Flows_and_Calculations.md*
 *Compliant with RBI DLG 2022 · RBI FPC · Penal Charges Circular Jan 2024 · CGST Act 2017*

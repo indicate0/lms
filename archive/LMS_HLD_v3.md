@@ -1,5 +1,5 @@
-# High-Level Design — Loan Management System (LMS) v3
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# High-Level Design — Alpha LMS v3
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Version:** 3.0 | **Previous version:** LMS_HLD_v2.md
 > **Changes in v3:** holiday_calendar module · partial payment / suspense handling · DLQ strategy · API pagination · health & readiness endpoints · circuit breaker for Digio/Razorpay

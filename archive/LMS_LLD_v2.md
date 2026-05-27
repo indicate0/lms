@@ -1,5 +1,5 @@
-# Low-Level Design — Loan Management System (LMS)
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# Low-Level Design — Alpha LMS
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Version:** 2.0 | **Previous version:** LMS_LLD.md
 > **Changes in v2:** loan_account_number · cooling-off cancel API · mandate amendment · auto-closure detection · part-prepayment engine · write-off workflow · annual interest certificate · payment link tracking · cross-sell engine · guarantor table · floating rate reset · penal charge terminology fix · 2 new cron jobs · 4 new Kafka topics
@@ -54,7 +54,7 @@ loans (
   customer_id            UUID         NOT NULL REFERENCES customers(id),
   agent_id               UUID         REFERENCES agents(id),
   loan_account_number    VARCHAR(30)  NOT NULL UNIQUE,
-    -- Format: TLB-{YYYY}-{8-digit-seq} e.g. TLB-2024-00012345
+    -- Format: Alpha LMS-{YYYY}-{8-digit-seq} e.g. Alpha LMS-2024-00012345
     -- Generated via per-tenant PostgreSQL sequence on loan creation
     -- Used in NOC, bureau reporting, RBI returns, all customer communications
 
@@ -1438,7 +1438,7 @@ function generateForeclosureQuote(loan_id):
   accrued_int   = loan.accrued_interest
   overdue       = loan.total_overdue
 
-  // Foreclosure rates by risk band (TLB policy)
+  // Foreclosure rates by risk band (Alpha LMS policy)
   fc_rates = { 'A': 0.02, 'B': 0.03, 'C': 0.04 }
   customer_band = loan.application.risk_band
   fc_rate = fc_rates[customer_band]

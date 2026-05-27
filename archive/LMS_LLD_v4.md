@@ -1,5 +1,5 @@
-# Low-Level Design — Loan Management System (LMS)
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# Low-Level Design — Alpha LMS
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Version:** 4.0 | **Previous version:** LMS_LLD_v3.md
 > **Changes in v4:** composite indexes · loan_ledger partitioning DDL · loan_account_number sequence DDL · master table seed data · standardised API error envelope · bounce handling engine (4.14) · monthly statement generator cron · foreclosure charge waived for floating-rate loans (RBI fix in 4.8) · NPA upgrade engine (4.16) · `rate_type` / `product_code` / `cooling_off_until` / `active_mandate_id` / `benchmark_code` columns on loans · `total_overdue` authoritative write in DPD engine · DDL for `pending_approvals` (2.26) · `audit_logs` (2.27) · `emi_debit_retry_queue` (2.28) · `noc_queue` (2.29) · `job_execution_logs` (2.27) · `npa.upgraded` Kafka topic
@@ -58,7 +58,7 @@ loans (
   customer_id            UUID         NOT NULL REFERENCES customers(id),
   agent_id               UUID         REFERENCES agents(id),
   loan_account_number    VARCHAR(30)  NOT NULL UNIQUE,
-    -- Format: TLB-{YYYY}-{8-digit-seq} e.g. TLB-2024-00012345
+    -- Format: Alpha LMS-{YYYY}-{8-digit-seq} e.g. Alpha LMS-2024-00012345
     -- Generated via per-tenant PostgreSQL sequence on loan creation
     -- Used in NOC, bureau reporting, RBI returns, all customer communications
 
@@ -1349,8 +1349,8 @@ BEGIN
     'SELECT nextval(''loan_account_seq_%s'')',
     p_tenant_short_code
   ) INTO seq_val;
-  RETURN 'TLB-' || p_year || '-' || LPAD(seq_val::TEXT, 8, '0');
-  -- e.g. TLB-2024-00012345
+  RETURN 'Alpha LMS-' || p_year || '-' || LPAD(seq_val::TEXT, 8, '0');
+  -- e.g. Alpha LMS-2024-00012345
 END;
 $$ LANGUAGE plpgsql;
 
@@ -2134,7 +2134,7 @@ function generateForeclosureQuote(loan_id):
 
   // RBI Master Direction for NBFCs (para 10): foreclosure charges are prohibited
   // on floating-rate term loans sanctioned to individual borrowers.
-  // For fixed-rate loans, charge per risk band (TLB credit policy).
+  // For fixed-rate loans, charge per risk band (Alpha LMS credit policy).
   IF loan.interest_type IN ('reducing_balance', 'flat', 'daily_flat')
      AND loan.rate_type != 'floating':
     // Fixed-rate loan — apply foreclosure charge

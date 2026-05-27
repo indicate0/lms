@@ -1,5 +1,5 @@
-# Loan Management System (LMS)
-### True Loan Bazaar (TLB) — BP Securities NBFC
+# Alpha LMS
+### Alpha LMS — BP Securities NBFC
 
 > Post-disbursal loan lifecycle management for a regulated Indian micro-lending platform.
 > Compliant with RBI Digital Lending Guidelines 2022, Penal Charges Circular (Jan 2024),
@@ -58,22 +58,22 @@ LOS (Loan Origination System)
 
 | Layer | Technology | Reason |
 |---|---|---|
-| **Backend API** | Python 3.12 + FastAPI | Async, native Decimal arithmetic, auto OpenAPI docs |
-| **Calculation engines / crons** | Python + Celery Beat | Safe financial arithmetic, APScheduler for 18 cron jobs |
-| **Frontend** | React 18 + TypeScript | Strict TypeScript throughout — no `any`, interfaces on every prop, API response, and store slice |
-| **Build tool** | Vite | Fast HMR, native ESM, optimised production builds |
-| **State management** | Redux Toolkit (RTK) | Predictable global state; integrates with RTK Query for server state |
-| **API / server state** | RTK Query | Auto caching, background re-fetch, optimistic updates; replaces manual axios boilerplate |
-| **Forms** | React Hook Form + Zod | Performant uncontrolled forms; Zod schemas shared with TypeScript types for runtime validation |
-| **UI components** | shadcn/ui + Tailwind CSS | Accessible, unstyled components + Tailwind utility classes; no CSS files |
-| **Database** | PostgreSQL 15 (RDS Multi-AZ) | ACID, RLS for multi-tenant isolation, range partitioning |
-| **ORM / migrations** | SQLAlchemy 2.0 + Alembic | Type-safe queries, versioned schema migrations |
-| **Cache** | Redis 7 (ElastiCache) | DPD cache, idempotency keys, circuit breaker state, config TTL |
-| **Message queue** | Apache Kafka (AWS MSK) | Event-driven async — 17 topics + DLQ pairs |
-| **Webhook service** | Node.js 20 + Express | Digio eNACH + Razorpay inbound webhooks (pure I/O) |
-| **PDF service** | Node.js 20 + Puppeteer | NOC, account statements, RBI reports |
+| **Backend API** | Python 3.13 + FastAPI 0.115 | Async, native Decimal arithmetic, auto OpenAPI docs |
+| **Calculation engines / crons** | Python 3.13 + Celery 5.4 + Celery Beat | Safe financial arithmetic; 18 cron jobs |
+| **Frontend** | React 19 + TypeScript 5.8 | Strict TypeScript throughout — no `any`, interfaces on every prop, API response, and store slice |
+| **Build tool** | Vite 6 | Fast HMR, native ESM, optimised production builds |
+| **State management** | Redux Toolkit 2.x (RTK) | Predictable global state; integrates with RTK Query for server state |
+| **API / server state** | RTK Query (bundled with RTK 2.x) | Auto caching, background re-fetch, optimistic updates; replaces manual axios boilerplate |
+| **Forms** | React Hook Form 7.x + Zod 4 | Performant uncontrolled forms; Zod schemas shared with TypeScript types for runtime validation |
+| **UI components** | shadcn/ui + Tailwind CSS v4 | Accessible, unstyled components + Tailwind utility classes; no CSS files |
+| **Database** | PostgreSQL 17 (RDS Multi-AZ) | ACID, RLS for multi-tenant isolation, range partitioning |
+| **ORM / migrations** | SQLAlchemy 2.0 + Alembic 1.14 | Type-safe queries, versioned schema migrations |
+| **Cache** | Redis 8 (ElastiCache) | DPD cache, idempotency keys, circuit breaker state, config TTL |
+| **Message queue** | Apache Kafka 3.9 (AWS MSK) | Event-driven async — 17 topics + DLQ pairs |
+| **Webhook service** | Node.js 22 LTS + Express 5 | Digio eNACH + Razorpay inbound webhooks (pure I/O) |
+| **PDF service** | Node.js 22 LTS + Puppeteer 24 | NOC, account statements, RBI reports |
 | **Object storage** | AWS S3 (ap-south-1) | Documents: NOC, KFS, statements, RBI reports |
-| **Infrastructure** | AWS EKS (Kubernetes) | Auto-scaling pods; K8s CronJobs for 18 background jobs |
+| **Infrastructure** | AWS EKS (Kubernetes 1.32) | Auto-scaling pods; K8s CronJobs for 18 background jobs |
 | **Secrets** | AWS Secrets Manager | Digio, Razorpay, bureau API credentials |
 | **Monitoring** | Datadog APM + Sentry | Request tracing, error tracking, cron health |
 
@@ -236,9 +236,9 @@ lms/
 │   ├── LMS_LLD.md
 │   ├── LMS_AUTH.md
 │   ├── LMS_CALCULATIONS.md
-│   ├── TLB_Calculations_and_Charges.md
-│   ├── TLB_Payment_Flows_and_Calculations.md
-│   └── TLB_Collection_and_Delinquency.md
+│   ├── Alpha LMS_Calculations_and_Charges.md
+│   ├── Alpha LMS_Payment_Flows_and_Calculations.md
+│   └── Alpha LMS_Collection_and_Delinquency.md
 │
 ├── archive/                      # Version history (v1–v4 design docs)
 ├── docker-compose.yml            # Local dev: postgres, redis, kafka, all services
@@ -265,10 +265,10 @@ lms/
 
 ### Prerequisites
 
-- Python 3.12
-- Node.js 20
-- Docker + Docker Compose
-- AWS CLI (for S3/Secrets Manager in staging)
+- Python 3.13
+- Node.js 22 LTS
+- Docker + Docker Compose v2
+- AWS CLI v2 (for S3/Secrets Manager in staging)
 
 ### Local Development
 
@@ -557,9 +557,9 @@ Full compliance checklist: [`docs/LMS_HLD.md`](docs/LMS_HLD.md) — Section 17.
 | [`docs/LMS_LLD.md`](docs/LMS_LLD.md) | Full DB schema (30 tables), engine pseudocode (16 engines), all API endpoints, cron schedule |
 | [`docs/LMS_AUTH.md`](docs/LMS_AUTH.md) | Auth framework — JWT, 16-role RBAC, LSA matrix, maker-checker, PII vault, DPDP consent |
 | [`docs/LMS_CALCULATIONS.md`](docs/LMS_CALCULATIONS.md) | LMS-scoped formula reference — EMI, accrual, waterfall, penalty, foreclosure, OTS |
-| [`docs/TLB_Calculations_and_Charges.md`](docs/TLB_Calculations_and_Charges.md) | Full charge master, risk band ROI matrix, worked examples end-to-end |
-| [`docs/TLB_Payment_Flows_and_Calculations.md`](docs/TLB_Payment_Flows_and_Calculations.md) | All payment types with accounting entries — EMI, bullet, overdue, foreclosure, OTS |
-| [`docs/TLB_Collection_and_Delinquency.md`](docs/TLB_Collection_and_Delinquency.md) | DPD escalation flows, collection agency integration, legal proceedings |
+| [`docs/Alpha LMS_Calculations_and_Charges.md`](docs/Alpha LMS_Calculations_and_Charges.md) | Full charge master, risk band ROI matrix, worked examples end-to-end |
+| [`docs/Alpha LMS_Payment_Flows_and_Calculations.md`](docs/Alpha LMS_Payment_Flows_and_Calculations.md) | All payment types with accounting entries — EMI, bullet, overdue, foreclosure, OTS |
+| [`docs/Alpha LMS_Collection_and_Delinquency.md`](docs/Alpha LMS_Collection_and_Delinquency.md) | DPD escalation flows, collection agency integration, legal proceedings |
 
 ---
 
@@ -589,4 +589,4 @@ hotfix/LMS-{ticket}-{short-description}    ← prod hotfixes (branch from main)
 
 ---
 
-*True Loan Bazaar (TLB) | LMS Service | BP Securities NBFC | Confidential*
+*Alpha LMS | LMS Service | BP Securities NBFC | Confidential*

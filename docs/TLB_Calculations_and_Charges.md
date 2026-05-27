@@ -1,5 +1,5 @@
 # Calculation & Charges Handbook
-## True Loan Bazaar (TLB) — Micro-Lending Platform
+## Alpha LMS — Micro-Lending Platform
 
 **All Fee, Interest & Penalty Calculations Across the Lending Lifecycle**
 
@@ -63,7 +63,7 @@ The AI/ML Risk Engine assigns a Risk Band (A through D) based on the Propensity-
 
 #### A. FOIR (Fixed Obligation to Income Ratio)
 
-FOIR measures what percentage of a customer's net monthly income is already committed to existing loan EMIs. TLB enforces a maximum FOIR of 50% before the new EMI.
+FOIR measures what percentage of a customer's net monthly income is already committed to existing loan EMIs. Alpha LMS enforces a maximum FOIR of 50% before the new EMI.
 
 ```
 FOIR  =  (Total Existing Monthly EMIs) / (Net Monthly Income)  × 100
@@ -471,7 +471,7 @@ GST on FC Charge     =  Foreclosure Charge  ×  18%
 
 Total Foreclosure Payment  =  OP  +  Foreclosure Charge  +  GST  +  Any Overdue
 
-Foreclosure Rates (TLB policy):
+Foreclosure Rates (Alpha LMS policy):
   Band A: 2% of OP  |  Band B: 3%  |  Band C: 4%
   Within 3 months of disbursal: additional 1% surcharge
   Payday loans: No foreclosure charge (bullet structure)
@@ -495,7 +495,7 @@ Foreclosure Rates (TLB policy):
 ### 6.2 Part-Prepayment
 
 ```
-Conditions (TLB policy, aligned with RBI FPC):
+Conditions (Alpha LMS policy, aligned with RBI FPC):
   • Minimum 3 EMIs must be paid before part-prepayment is allowed
   • Minimum prepayment = 1 full EMI amount
   • Maximum 2 part-prepayments per loan tenure
@@ -505,7 +505,7 @@ GST                     =  Charge  ×  18%
 
 After Part-Prepayment → LMS recalculates amortisation schedule:
   Option A: Reduce EMI (same tenure)
-  Option B: Reduce Tenure (same EMI)   ← TLB default
+  Option B: Reduce Tenure (same EMI)   ← Alpha LMS default
 ```
 
 ---
@@ -514,7 +514,7 @@ After Part-Prepayment → LMS recalculates amortisation schedule:
 
 ### 7.1 Commission Structure
 
-| Slab (Disbursed Amt) | DSA Commission Rate | Sub-DSA Split | TLB Retention |
+| Slab (Disbursed Amt) | DSA Commission Rate | Sub-DSA Split | Alpha LMS Retention |
 |---|---|---|---|
 | ₹0 – ₹25,000 | 1.00% of disbursed amt | 0.25% to sub-DSA | 0.75% |
 | ₹25,001 – ₹1,00,000 | 1.50% of disbursed amt | 0.40% to sub-DSA | 1.10% |
@@ -553,7 +553,7 @@ Where R     = 6,371 km (Earth's radius)
       lat1, lon1 = Aadhaar registered address coordinates
       lat2, lon2 = Nearest BP Securities branch coordinates
 
-TLB Business Rules:
+Alpha LMS Business Rules:
   Loan ≤ ₹20,000  →  No distance restriction
   Loan > ₹20,000  →  Customer address must be within 50 km of nearest branch
   Negative Pincode Zone  →  Auto-Reject regardless of loan amount
@@ -631,7 +631,7 @@ As per RBI Digital Lending Guidelines 2022, a KFS must be provided to the borrow
 
 | KFS Field | Description | Example (₹50,000, 6m, Band B) |
 |---|---|---|
-| Lender Name | Name of NBFC / lending entity | BP Securities / TLB NBFC |
+| Lender Name | Name of NBFC / lending entity | BP Securities / Alpha LMS NBFC |
 | Loan Product | Product type | Short-Term Personal Loan |
 | Sanctioned Loan Amount | Approved principal | ₹50,000 |
 | Net Disbursed Amount | Amount credited to borrower's account | ₹47,363 |
@@ -680,4 +680,4 @@ Post loan closure, the BI Engine automatically flags customers for cross-sell ba
 
 ---
 
-*True Loan Bazaar (TLB) | Calculation & Charges Handbook v1.0 | Confidential | Compliant with RBI Digital Lending Guidelines 2022*
+*Alpha LMS | Calculation & Charges Handbook v1.0 | Confidential | Compliant with RBI Digital Lending Guidelines 2022*

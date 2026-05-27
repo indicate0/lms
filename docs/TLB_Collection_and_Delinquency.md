@@ -1,5 +1,5 @@
 # Collection & Delinquency Management
-## True Loan Bazaar (TLB) — Micro-Lending Platform
+## Alpha LMS — Micro-Lending Platform
 
 **Complete Workflow, Escalation Logic & Financial Calculations**
 
@@ -10,7 +10,7 @@
 
 ## 1. Framework Overview
 
-TLB's collection system is a fully automated, DPD-driven escalation engine integrated into the LMS. It transitions from soft digital nudges on Day 1 to legal proceedings at DPD 90+, with every action logged in the Audit Service and every charge calculated and applied in real-time.
+Alpha LMS's collection system is a fully automated, DPD-driven escalation engine integrated into the LMS. It transitions from soft digital nudges on Day 1 to legal proceedings at DPD 90+, with every action logged in the Audit Service and every charge calculated and applied in real-time.
 
 ```
 Loan Disbursed → Active
@@ -335,7 +335,7 @@ Offered as a last resort before NPA to customers who demonstrate willingness to 
 ### 6.3 Restructuring Charge Calculation
 
 ```
-Restructuring Fee  =  Outstanding Principal  ×  1.5%   (TLB policy)
+Restructuring Fee  =  Outstanding Principal  ×  1.5%   (Alpha LMS policy)
 GST                =  Fee  ×  18%
 Total Charge       =  Fee + GST
 
@@ -400,7 +400,7 @@ OTS Offer Amount  =  Principal Outstanding (OP)
                   −  Waiver on Legal Charges
                   ±  Negotiated adjustment
 
-Standard OTS Slabs (TLB policy):
+Standard OTS Slabs (Alpha LMS policy):
 
   DPD 90–180:
     Settle at  OP + 50% of accrued regular interest
@@ -471,7 +471,7 @@ Provisioning is a mandatory accounting entry where the NBFC sets aside funds aga
 
 ### 8.1 Provisioning Rates
 
-| Asset Category | DPD / NPA Age | Secured Loans | Unsecured Loans | TLB (all unsecured) |
+| Asset Category | DPD / NPA Age | Secured Loans | Unsecured Loans | Alpha LMS (all unsecured) |
 |---|---|---|---|---|
 | Standard Asset | 0 DPD | 0.25% – 0.40% | 0.25% – 0.40% | 0.40% of portfolio |
 | Sub-Standard | NPA < 12 months | 15% | 25% | **25%** |
@@ -480,7 +480,7 @@ Provisioning is a mandatory accounting entry where the NBFC sets aside funds aga
 | Doubtful-3 | NPA > 36 months | 100% | 100% | **100%** |
 | Loss Asset | Written off | 100% | 100% | **100%** |
 
-> All TLB loans are **unsecured personal loans**. Provisioning follows the unsecured column.
+> All Alpha LMS loans are **unsecured personal loans**. Provisioning follows the unsecured column.
 
 ### 8.2 Provisioning Calculation
 
@@ -488,7 +488,7 @@ Provisioning is a mandatory accounting entry where the NBFC sets aside funds aga
 Provision Amount  =  Net Outstanding Principal  ×  Provisioning Rate
 
 Net Outstanding   =  Gross Outstanding  −  Any Security / Guarantee (if any)
-                  (for TLB unsecured loans: Net Outstanding = Gross Outstanding)
+                  (for Alpha LMS unsecured loans: Net Outstanding = Gross Outstanding)
 
 Provision Journal Entry:
   Dr  Provision for Loan Losses (P&L)   =  Provision Amount
@@ -521,7 +521,7 @@ RBI expectation for unsecured NBFCs:  ≥ 60%
 
 A write-off removes the loan from the active balance sheet. Recovery is still pursued; any recovery is booked as income.
 
-### 9.1 Write-Off Criteria (TLB policy)
+### 9.1 Write-Off Criteria (Alpha LMS policy)
 
 ```
   • NPA for > 365 days (Doubtful-1 and above)
@@ -567,7 +567,7 @@ CER  =  (Amount Collected in Period / Amount Due in Period)  ×  100
 Amount Due   =  All EMIs scheduled for the period (including overdue from prior periods)
 Amount Collected = All payments received (EMIs + penalty + legal charges)
 
-Target CER for TLB:  ≥ 95% (current portfolio)
+Target CER for Alpha LMS:  ≥ 95% (current portfolio)
                       ≥ 75% (delinquent portfolio)
 ```
 
@@ -604,7 +604,7 @@ Recovery Rate  =  (Amount Recovered from NPA Accounts / Gross NPA Outstanding)  
 
 Includes: OTS settlements + legal recoveries + voluntary payments post-NPA
 
-Target for TLB micro-lending:  ≥ 40% of Gross NPA
+Target for Alpha LMS micro-lending:  ≥ 40% of Gross NPA
 ```
 
 ### 10.4 Gross NPA Ratio
@@ -616,7 +616,7 @@ Gross NPA Outstanding  =  All accounts with DPD > 90, at book value
 Gross Loan Portfolio   =  Total outstanding principal across all active loans
 
 RBI benchmark for NBFC-MFI:  < 5%
-TLB target:                   < 3%
+Alpha LMS target:                   < 3%
 ```
 
 ### 10.5 Net NPA Ratio
@@ -624,7 +624,7 @@ TLB target:                   < 3%
 ```
 Net NPA Ratio  =  (Gross NPA − Provisions Held) / (Gross Loan Portfolio − Provisions)  ×  100
 
-TLB target:  < 1.5%
+Alpha LMS target:  < 1.5%
 ```
 
 ### 10.6 Cost of Collection
@@ -638,7 +638,7 @@ Cost of Collection (per loan)  =
 Cost of Collection Ratio  =
   Total Collection Cost / Total Amount Recovered  ×  100
 
-TLB target:  < 15% of amount recovered
+Alpha LMS target:  < 15% of amount recovered
 ```
 
 ### 10.7 Portfolio at Risk (PAR)
@@ -649,9 +649,9 @@ PAR (X days)  =  Outstanding balance of all loans with DPD > X
                  Total Outstanding Loan Portfolio
 
 Common thresholds:
-  PAR-30   (DPD > 30):  TLB target < 8%
-  PAR-60   (DPD > 60):  TLB target < 5%
-  PAR-90   (DPD > 90):  TLB target < 3%  (= Gross NPA Ratio)
+  PAR-30   (DPD > 30):  Alpha LMS target < 8%
+  PAR-60   (DPD > 60):  Alpha LMS target < 5%
+  PAR-90   (DPD > 90):  Alpha LMS target < 3%  (= Gross NPA Ratio)
 ```
 
 ---
@@ -754,5 +754,5 @@ Common thresholds:
 
 ---
 
-*True Loan Bazaar (TLB) | Collection & Delinquency Management v1.0 | Confidential*
+*Alpha LMS | Collection & Delinquency Management v1.0 | Confidential*
 *Compliant with RBI NPA Circular, RBI Digital Lending Guidelines 2022, SARFAESI Act, CGST Act 2017*

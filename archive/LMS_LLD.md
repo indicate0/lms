@@ -1,5 +1,5 @@
-# Low-Level Design — Loan Management System (LMS)
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# Low-Level Design — Alpha LMS
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Scope:** This document covers the LMS only. The LOS (Loan Origination System) ends at disbursal confirmation + UTR receipt. LMS ownership begins from that moment.
 >
@@ -1258,7 +1258,7 @@ function generateForeclosureQuote(loan_id):
   accrued_int   = loan.accrued_interest
   overdue       = loan.total_overdue
 
-  // Foreclosure rates by risk band (TLB policy)
+  // Foreclosure rates by risk band (Alpha LMS policy)
   fc_rates = { 'A': 0.02, 'B': 0.03, 'C': 0.04 }
   customer_band = loan.application.risk_band
   fc_rate = fc_rates[customer_band]

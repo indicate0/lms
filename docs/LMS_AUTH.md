@@ -1,7 +1,7 @@
-# Authorization & Access Control Design — Loan Management System (LMS)
-## True Loan Bazaar (TLB) — Post-Disbursal Authorization Framework
+# Authorization & Access Control Design — Alpha LMS
+## Alpha LMS — Post-Disbursal Authorization Framework
 
-> **Version:** 2.0 | **Reference:** R&D-docs/v0/TLB_Authorization_Framework.md (platform-wide) · LMS_LLD_v2.md · LMS_HLD_v2.md
+> **Version:** 2.0 | **Reference:** R&D-docs/v0/Alpha LMS_Authorization_Framework.md (platform-wide) · LMS_LLD_v2.md · LMS_HLD_v2.md
 >
 > **Regulatory basis:** RBI Digital Lending Guidelines 2022 · RBI Master Direction KYC 2016 (amended 2023) · RBI IT Framework for NBFCs (Oct 2017) · RBI Cyber Security Framework for NBFCs (2021) · RBI Master Direction NBFC-ND-SI 2016 · RBI Fair Practice Code · DPDP Act 2023 · IT Act 2000 — Section 43A · IT (SRPS) Rules 2011 · NPCI eMandate Guidelines · IRDAI (for credit-linked insurance opt-in)
 
@@ -932,5 +932,5 @@ RBI IT Framework (2017) mandates formal periodic review of user access rights.
 
 ---
 
-*True Loan Bazaar (TLB) | LMS Authorization & Access Control Framework v2.0 | Confidential*
+*Alpha LMS | LMS Authorization & Access Control Framework v2.0 | Confidential*
 *Compliant with: RBI DLG 2022 · RBI Master Direction KYC 2023 · RBI IT Framework for NBFCs 2017 · RBI Cyber Security Framework 2021 · DPDP Act 2023 · IT Act 2000 (Sec. 43A) · IT (SRPS) Rules 2011 · NPCI eMandate Guidelines*

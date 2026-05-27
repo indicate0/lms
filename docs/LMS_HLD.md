@@ -1,8 +1,8 @@
-# High-Level Design — Loan Management System (LMS) v3
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# High-Level Design — Alpha LMS v3
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Version:** 4.0 | **Previous version:** LMS_HLD_v3.md
-> **Changes in v4:** master table seed data · composite indexes · loan_ledger partitioning DDL · standardised API error envelope · loan_account_number sequence DDL
+> **Changes in v4:** master table seed data · composite indexes · loan_ledger partitioning DDL · standardised API error envelope · loan_account_number sequence DDL · interest accrual module · bounce charge module · account statement module · due date change module · moratorium module · prepayment / foreclosure lock-in · TDS module · GST tax invoice module
 >
 > **Changes in v3:** holiday_calendar module · partial payment / suspense handling · DLQ strategy · API pagination · health & readiness endpoints · circuit breaker for Digio/Razorpay
 
@@ -46,6 +46,14 @@ LOS → [loan.disbursed event] → LMS owns everything from here
 | Regulatory reporting | RBI monthly return, CRILC SMA report, bureau submission |
 | Float rate reset | Rate change notification and schedule recalculation |
 | Waiver governance | Tiered approval workflow for all charge waivers |
+| Interest accrual | Daily accrual with state-aware behaviour (moratorium, NPA suspense, write-off) |
+| Bounce charge | Charge application on mandate failure, same-day waiver, GST tracking |
+| Account statement | On-demand and scheduled statements; annual interest certificate for ITR |
+| Due date change | Customer-initiated EMI date shift with broken-period interest and mandate amendment |
+| Moratorium | Standalone payment suspension (full / interest-only) with deferred interest spreading |
+| Lock-in enforcement | Prepayment and foreclosure eligibility gate per product and RBI rules |
+| TDS | Tax deduction at source on interest; Form 16A generation; TRACES reconciliation |
+| GST invoice | Statutory tax invoice for fees and charges; GSTR-1 monthly export |
 
 ---
 
@@ -121,6 +129,29 @@ LOS → [loan.disbursed event] → LMS owns everything from here
 │  │   Waiver Governance Module  (tiered approval)                          │  │
 │  │   • Waiver request intake  • Approval routing  • Ledger application   │  │
 │  └────────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐   │
+│  │  Interest       │  │  Bounce Charge   │  │   Account Statement     │   │
+│  │  Accrual Module │  │  Module          │  │   Module                │   │
+│  │  • Daily 00:05  │  │  • Charge apply  │  │   • On-demand PDF       │   │
+│  │  • State-aware  │  │  • GST compute   │  │   • Monthly statement   │   │
+│  │  • NPA suspense │  │  • Same-day waiv │  │   • Interest cert (ITR) │   │
+│  └─────────────────┘  └──────────────────┘  └──────────────────────────┘   │
+│                                                                              │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐   │
+│  │  Moratorium     │  │  Due Date Change │  │   Lock-in Enforcement   │   │
+│  │  Module         │  │  Module          │  │   Module                │   │
+│  │  • Full / IO    │  │  • Eligibility   │  │   • Foreclosure gate    │   │
+│  │  • Deferred int │  │  • Broken period │  │   • Prepayment gate     │   │
+│  │  • DPD suppress │  │  • Mandate amend │  │   • Floating-rate rule  │   │
+│  └─────────────────┘  └──────────────────┘  └──────────────────────────┘   │
+│                                                                              │
+│  ┌─────────────────┐  ┌──────────────────┐                                  │
+│  │  TDS Module     │  │  GST Invoice     │                                  │
+│  │  • TDS deduct   │  │  Module          │                                  │
+│  │  • Form 16A gen │  │  • Invoice gen   │                                  │
+│  │  • TRACES recon │  │  • GSTR-1 export │                                  │
+│  └─────────────────┘  └──────────────────┘                                  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -468,6 +499,228 @@ Wraps all outbound calls to Digio (eNACH) and Razorpay (UPI Autopay) in a circui
 
 ---
 
+### 6.18 Interest Accrual Module (v4 — new)
+
+Runs daily at 00:05 IST before any other engine, making accrued interest available for DPD and penalty engines in the same day's batch.
+
+**Accrual method:** Actual/365 (daily rate = `roi_annual / 365`). Applied on `outstanding_principal` as of end-of-prior-day.
+
+**Ledger entry:** `entry_type = 'interest_accrual'` posted to `loan_ledger`; `loans.accrued_interest` incremented atomically within the same transaction.
+
+**State-specific behaviour:**
+
+| Loan State | Accrual Behaviour |
+|---|---|
+| `active` | Normal daily accrual on outstanding principal |
+| `restructured` | Accrues on revised outstanding from restructure effective date |
+| `moratorium` | Accrues to `loan_moratoriums.deferred_interest` (not to EMI immediately) |
+| `npa` | Accrues but posted to shadow `npa_interest_suspense`; not added to customer demand |
+| `written_off` | Accrual suspended; already-accrued suspense amount noted in provisioning record |
+| `closed` / `foreclosed` | No accrual; final interest settled at closure |
+
+**Interest on overdue principal:** If an EMI's principal component is unpaid beyond due date, interest continues accruing on that component until collected. This is tracked via `repayment_schedules.overdue_principal`.
+
+---
+
+### 6.19 Bounce Charge Module (v4 — new)
+
+Triggered by a `payment.failed` webhook from Digio (eNACH) or Razorpay (UPI Autopay). Applies a bounce charge per `charge_master` (`charge_type = 'bounce'`) with GST.
+
+**Trigger conditions:**
+- `nach.debit.failed` (Digio) or `payment.failed` (Razorpay) for a scheduled auto-debit
+- Manual payment link failure is **not** subject to bounce charge (no mandate presentation)
+
+**Same-day waiver rule:** If the mandate is re-presented and succeeds on the same calendar day (via a retry that the auto-debit orchestrator initiates within 4 hours), the bounce charge is automatically reversed. Configurable via `product_master.same_day_retry_waiver = TRUE`.
+
+**Charge cap:** `charge_master.max_bounce_charges_per_loan` caps the total bounce charges chargeable over the loan lifetime (per product). Once cap is reached, charge is ₹0 but the bounce event is still recorded.
+
+**GST:** 18% GST computed and tracked in `bounce_events.gst_amount`. GST invoice generated by §6.25 module.
+
+**Table:** `bounce_events` — one row per bounce event; linked to `payments.id` (the failed payment attempt) and `loan_id`.
+
+**Events published:** `payment.bounced` → Notification Service (SMS + WhatsApp to customer), Collection Engine (DPD clock starts), `bounce_charge.applied` → Audit Service.
+
+---
+
+### 6.20 Account Statement Module (v4 — new)
+
+Provides on-demand and scheduled loan account statements.
+
+**Statement types:**
+
+| Type | Trigger | Content |
+|---|---|---|
+| Full account statement | Customer / admin API request | All ledger entries, schedule, outstanding breakup |
+| Monthly statement | 5th of month cron | Transactions in prior month + closing balance |
+| Repayment schedule | Any time post-disbursal | Full amortisation table, remaining EMIs |
+| Interest / provisional certificate | On-demand (for ITR filing) | Total interest paid in a financial year (Apr–Mar) |
+
+**API endpoints:**
+
+| Endpoint | Description |
+|---|---|
+| `GET /loans/:id/statement?from=&to=` | On-demand statement (PDF + JSON) |
+| `GET /loans/:id/statement/schedule` | Current repayment schedule as PDF |
+| `GET /loans/:id/statement/interest-certificate?fy=2024-25` | Interest certificate for a financial year |
+
+**Delivery:** PDF generated via Puppeteer PDF Service → stored in S3 → signed URL (7-day TTL) returned in API response. Monthly statements also delivered via ZeptoMail email.
+
+**RBI FPC requirement:** At least one free statement per year. Additional on-demand statements may be charged per `charge_master` (`charge_type = 'statement_reissue'`).
+
+**Table:** `loan_statements` — tracks each generated statement (type, period, S3 key, SHA-256 hash, generated_at, delivered_at).
+
+---
+
+### 6.21 Due Date Change Module (v4 — new)
+
+Allows a borrower to shift their monthly EMI due date once during the loan lifetime.
+
+**Eligibility rules (all must pass):**
+- Loan status is `active`
+- No overdue amount (`total_overdue = 0`)
+- No existing due-date change on this loan (`loan_due_date_changes` table is empty for this `loan_id`)
+- Requested new due date is between 1st and 28th of month (no 29th–31st to avoid month-end issues)
+- Minimum 5 calendar days gap between request date and next existing due date (to avoid mandate conflict)
+
+**Processing steps:**
+1. Validate eligibility
+2. Compute broken-period interest from old due date to new due date; post as one-time `interest_adjustment` entry in `loan_ledger`
+3. Regenerate repayment schedule from next EMI onwards with new due date
+4. Trigger mandate amendment (via eNACH / UPI Autopay) to reflect new presentation date
+5. Notify customer (SMS + email) with new due date and first EMI under new schedule
+6. Record in `loan_due_date_changes`
+
+**Mandate amendment dependency:** Due date change is held in `PENDING_MANDATE_AMENDMENT` status until the mandate vendor confirms the new presentation date. If mandate amendment fails within 72 hours, due date change is rolled back.
+
+**Table:** `loan_due_date_changes` — `loan_id`, `old_due_day`, `new_due_day`, `broken_period_interest`, `status` (`pending_mandate` / `active` / `rolled_back`), `requested_by`, `approved_at`.
+
+---
+
+### 6.22 Moratorium Module (v4 — new)
+
+A standalone moratorium is a temporary suspension of repayment obligations. It is **distinct from restructuring** — it does not revise the loan terms permanently and carries a different regulatory classification (no SMA upgrade protection unless RBI-mandated).
+
+**Moratorium types:**
+
+| Type | Principal | Interest |
+|---|---|---|
+| Full moratorium | Deferred | Deferred (accumulated) |
+| Interest-only moratorium | Deferred | Collected monthly as-is |
+
+**Trigger:** Admin / credit committee action. Requires maker-checker approval at Credit Committee level minimum (≥ Branch Head for ≤ 3 months; Credit Committee for > 3 months).
+
+**Interest handling during moratorium:**
+- Accrued daily per §6.18; credited to `loan_moratoriums.deferred_interest` instead of EMI demand
+- On moratorium end, deferred interest is spread equally across remaining EMIs (revised EMI amount) — or collected as a lump sum on the first post-moratorium due date (configurable per `product_master.moratorium_interest_recovery`)
+
+**Schedule behaviour:**
+- EMIs due during moratorium are marked `status = 'moratorium'` in `repayment_schedules`; not treated as overdue
+- Tenure extended by moratorium duration (default); or EMI amount increased to absorb deferred interest (per product config)
+- DPD does **not** accrue during an approved moratorium
+
+**Table:** `loan_moratoriums` — `loan_id`, `type`, `start_date`, `end_date`, `deferred_principal`, `deferred_interest`, `status` (`active` / `ended` / `cancelled`), `approved_by`, `approval_role`.
+
+**Events:** `moratorium.started` → Notification Service, DPD Engine (suppress DPD); `moratorium.ended` → Schedule Engine (recalculate), Notification Service.
+
+---
+
+### 6.23 Prepayment & Foreclosure Lock-in Enforcement (v4 — new)
+
+Many products prohibit or penalise early repayment within a lock-in window. This module enforces those rules at the Closure Module and Part-prepayment Module boundaries.
+
+**Configuration (in `product_master`):**
+
+| Field | Description |
+|---|---|
+| `lock_in_months` | Months from disbursal during which prepayment / foreclosure is blocked or charged |
+| `lock_in_action` | `block` (request rejected) or `charge` (higher foreclosure fee applies) |
+| `foreclosure_charge_within_lockin_pct` | Charge % if `lock_in_action = 'charge'` |
+| `foreclosure_charge_post_lockin_pct` | Charge % after lock-in window |
+| `prepayment_min_amount_inr` | Minimum part-prepayment amount |
+| `prepayment_max_pct_per_year` | Max % of outstanding principal that can be prepaid in a 12-month window |
+
+**RBI rules enforced:**
+- Floating-rate retail loans: zero foreclosure charge after lock-in (RBI Master Direction)
+- Fixed-rate loans: charge allowed but must be disclosed in KFS
+- Cooling-off period (3 days post-disbursal): no foreclosure charge regardless of lock-in
+
+**Lock-in check flow:**
+1. Closure / part-prepayment request received
+2. Compute `months_since_disbursal` = months between `loans.disbursed_at` and today
+3. If `months_since_disbursal < lock_in_months`:
+   - `lock_in_action = 'block'` → return `HTTP 422` with reason `WITHIN_LOCK_IN_PERIOD`
+   - `lock_in_action = 'charge'` → apply `foreclosure_charge_within_lockin_pct`; quote shown to customer for confirmation
+4. If `months_since_disbursal >= lock_in_months` and loan is floating-rate → zero charge
+5. All charge overrides recorded in `foreclosure_requests.lock_in_override_reason`
+
+---
+
+### 6.24 TDS (Tax Deducted at Source) Module (v4 — new)
+
+Applicable where the borrower is a corporate entity or where annual interest paid exceeds the statutory threshold (currently ₹40,000 for NBFCs under Section 194A of the Income Tax Act, 1961).
+
+**TDS deduction flag:** `loans.tds_applicable = TRUE` set by LOS at disbursal based on borrower PAN category (individual vs. company) and expected annual interest.
+
+**TDS deduction flow:**
+1. At each EMI posting, if `tds_applicable = TRUE`, compute TDS on interest component at prevailing rate (10% standard; lower if borrower submits Form 15G/15H)
+2. Net EMI demand = EMI – TDS amount; payment link raised for net amount
+3. TDS amount recorded in `tds_deductions` table; NBFC remits to Income Tax Department by 7th of following month
+4. Form 26AS reconciliation: match `tds_deductions` against TRACES portal data quarterly
+
+**Form 15G / 15H handling:** Borrower submits declaration → `loans.tds_rate_override = 0`; stored in S3; valid for one financial year.
+
+**Form 16A generation:** Quarterly; generated by TDS Module as PDF (via Puppeteer), stored in S3, delivered to borrower via email and accessible at `GET /loans/:id/tds/form16a?quarter=Q1-2025`.
+
+**Table:** `tds_deductions` — `loan_id`, `payment_id`, `interest_amount`, `tds_rate_pct`, `tds_amount`, `remittance_challan_no`, `quarter`, `form16a_s3_key`.
+
+**Cron:** `tds_remittance_report` — runs on 5th of each month; generates challan data for NBFC finance team.
+
+---
+
+### 6.25 GST Tax Invoice Module (v4 — new)
+
+Generates statutory tax invoices for all fee and charge events. Required under CGST Act 2017. **Note: GST does not apply to interest income; it applies to processing fees, bounce charges, penalty charges, foreclosure charges, statement reissue fees, and legal charges.**
+
+**Invoice trigger events:**
+
+| Charge Event | Invoice Type |
+|---|---|
+| Bounce charge applied | Tax Invoice |
+| Penalty charge applied (daily accrual above threshold, or on-demand) | Tax Invoice |
+| Foreclosure charge collected | Tax Invoice |
+| Part-prepayment charge collected | Tax Invoice |
+| Legal notice charge applied | Tax Invoice |
+| Statement reissue fee charged | Tax Invoice |
+
+**Invoice content:** NBFC GSTIN, borrower name, loan account number, charge description, base amount, CGST (9%), SGST (9%) or IGST (18%) based on state of supply, invoice date, sequential invoice number.
+
+**Invoice number sequence:** `GST-{tenant_code}-{YYYY}-{NNNNNN}` per tenant per financial year; stored in `gst_invoice_sequences` table.
+
+**Delivery:** PDF stored in S3; linked from `gst_invoices.s3_key`; delivered via ZeptoMail email at time of charge application. Accessible at `GET /loans/:id/invoices` (list) and `GET /loans/:id/invoices/:invoice_id` (download).
+
+**GSTR-1 export:** Monthly cron on 5th generates a CSV extract of all `gst_invoices` for the prior month, formatted per GSTN portal specification, delivered to finance team via S3 + email.
+
+**Table:** `gst_invoices` — `loan_id`, `charge_event_id`, `charge_type`, `base_amount`, `gst_rate_pct`, `cgst`, `sgst`, `igst`, `invoice_number`, `invoice_date`, `s3_key`, `delivered_at`.
+
+---
+
+### 6.26 Cross-Sell Engine (Phase 6 — placeholder)
+
+Evaluates closed or active loans for cross-sell eligibility daily and publishes signals to the LOS / marketing layer. Owned by LMS (data source) but acts only as a signal emitter — product decisions and offer rendering are outside LMS scope.
+
+**Eligibility signals emitted (via `crosssell.eligible` event):**
+
+| Signal | Condition |
+|---|---|
+| `REPEAT_LOAN_ELIGIBLE` | Loan closed normally, DPD never exceeded 30, outstanding = ₹0 |
+| `TOP_UP_SIGNAL` | Active loan, > 40% principal repaid, DPD = 0 for last 6 months |
+| `UPGRADE_PRODUCT_SIGNAL` | Payday borrower, 3+ successful cycles, never NPA |
+| `INELIGIBLE` | Any NPA, OTS, written-off, or settled_legal history |
+
+The LOS / AI-ML Risk Engine consumes `crosssell.eligible` and decides whether to make an offer. LMS has no further involvement.
+
+---
+
 ## 7. External Integrations (LMS-Specific)
 
 | Integration | Vendor | Purpose | Direction |
@@ -496,7 +749,7 @@ Wraps all outbound calls to Digio (eNACH) and Razorpay (UPI Autopay) in a circui
 │                       LMS DATA STORES                                 │
 │                                                                       │
 │  ┌──────────────────────────────────────────────────────────────┐    │
-│  │  PostgreSQL 15  (Primary — RDS Multi-AZ, ap-south-1)         │    │
+│  │  PostgreSQL 17  (Primary — RDS Multi-AZ, ap-south-1)         │    │
 │  │                                                              │    │
 │  │  Core tables:                                                │    │
 │  │  loans · repayment_schedules · loan_ledger (partitioned)     │    │
@@ -506,6 +759,8 @@ Wraps all outbound calls to Digio (eNACH) and Razorpay (UPI Autopay) in a circui
 │  │  credit_bureau_reports · regulatory_reports · loan_waivers   │    │
 │  │  collection_assignments · collection_interactions            │    │
 │  │  legal_proceedings · rate_reset_events                       │    │
+│  │  loan_moratoriums · loan_due_date_changes · loan_statements  │    │
+│  │  tds_deductions · gst_invoices · gst_invoice_sequences       │    │
 │  │                                                              │    │
 │  │  Master / config tables:                                     │    │
 │  │  charge_master · product_master · collection_rule_master      │    │
@@ -519,7 +774,7 @@ Wraps all outbound calls to Digio (eNACH) and Razorpay (UPI Autopay) in a circui
 │  └──────────────────────────────────────────────────────────────┘    │
 │                                                                       │
 │  ┌───────────────────────────┐  ┌───────────────────────────────┐    │
-│  │  Redis 7  (ElastiCache)   │  │  AWS S3  (ap-south-1)         │    │
+│  │  Redis 8  (ElastiCache)   │  │  AWS S3  (ap-south-1)         │    │
 │  │                           │  │                               │    │
 │  │  • Idempotency keys (UTR) │  │  • NOC PDFs                   │    │
 │  │  • Payment dedup cache    │  │  • Account statements         │    │
@@ -581,6 +836,17 @@ LMS is event-driven for all async operations. Events flow through Kafka (AWS MSK
 │                                                                     │
 │  Grievance Svc ──[waiver.approved]───────► LMS Waiver API          │
 │  Legal Portal ──[recovery.realised]──────► LMS Payment Module      │
+│                                                                     │
+│  LMS ──[bounce.charge.applied]───────────► Notification Svc        │
+│                                            GST Invoice Module       │
+│  LMS ──[moratorium.started]──────────────► Notification Svc        │
+│                                            DPD Engine (suppress)    │
+│  LMS ──[moratorium.ended]────────────────► Schedule Engine         │
+│                                            Notification Svc         │
+│  LMS ──[statement.generated]─────────────► Notification Svc        │
+│  LMS ──[crosssell.eligible]──────────────► LOS / AI-ML Risk Engine │
+│  LMS ──[due_date.changed]────────────────► Notification Svc        │
+│                                            Mandate Service          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -612,6 +878,11 @@ All time-based operations run as Kubernetes CronJobs on the same EKS cluster. Ea
 Every 30m  ── noc_generation_queue
 Every 1hr  ── waiver_application_queue  (process pending approved waivers)
 Every 4hr  ── agency_export  (push delinquent account list to agencies)
+05:00 IST  ── tds_remittance_report  (5th of month — challan data for finance)
+05:30 IST  ── gstr1_extract  (5th of month — GST invoice CSV for GSTN portal)
+06:00 IST  ── monthly_statement_generation  (5th of month)
+10:00 IST  ── cross_sell_engine  (daily)
+Every 6hr  ── due_date_change_mandate_poll  (check pending mandate amendments; rollback if 72hr elapsed)
 // grievance_sla_monitor: runs inside the Grievance Service, not LMS
 ```
 
@@ -754,9 +1025,9 @@ NPA       OTS offer (tiered approval — see §6.11)
 
 | Layer | Technology |
 |---|---|
-| API service | Node.js (Express) — primary; Python (FastAPI) — calculation-heavy engines |
-| Database | PostgreSQL 15 (RDS Multi-AZ) |
-| Cache / Dedup | Redis 7 (ElastiCache) |
+| API service | Node.js 22 LTS (Express 5) — primary; Python (FastAPI) — calculation-heavy engines |
+| Database | PostgreSQL 17 (RDS Multi-AZ) |
+| Cache / Dedup | Redis 8 (ElastiCache) |
 | Document store | MongoDB (DocumentDB) — webhook logs, notification logs, collection interaction logs |
 | Object storage | AWS S3 (server-side encrypted, ap-south-1) |
 | Message queue | Apache Kafka (AWS MSK) / AWS SQS |
@@ -843,3 +1114,18 @@ Before promoting LMS to production, all items below must be verified.
 | Data Protection Officer (DPO) appointed under DPDP Act 2023 | ☐ |
 | `audit_trail` INSERT-only policy tested (UPDATE/DELETE returns error) | ☐ |
 | NBFC RBI registration number confirmed for use in all communications | ☐ |
+
+### 17.6 New Modules (v4)
+
+| Item | Verified |
+|---|---|
+| `loan_moratoriums` table created; moratorium DPD suppression tested end-to-end | ☐ |
+| `loan_due_date_changes` table created; mandate amendment rollback at 72hr tested | ☐ |
+| `loan_statements` table created; interest certificate PDF verified for a financial year | ☐ |
+| `tds_deductions` table created; Form 16A PDF generated and delivered for a test loan | ☐ |
+| `gst_invoices` + `gst_invoice_sequences` tables created; GSTIN configured in `tenant_configs` | ☐ |
+| GST invoice generated for bounce charge and foreclosure charge in staging | ☐ |
+| Lock-in enforcement tested: block and charge modes; floating-rate zero-charge post-lock-in verified | ☐ |
+| `product_master` seeded with `lock_in_months`, `lock_in_action`, foreclosure charge % fields | ☐ |
+| Bounce charge same-day waiver logic tested (payment success within 4hr of bounce) | ☐ |
+| GSTR-1 CSV extract format validated against GSTN portal specification | ☐ |

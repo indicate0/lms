@@ -1,5 +1,5 @@
 # Payment Flows & Calculations
-## True Loan Bazaar (TLB) — Micro-Lending Platform
+## Alpha LMS — Micro-Lending Platform
 
 **All Payment Types · Modes · Waterfall Logic · Calculations · Accounting Entries**
 
@@ -353,7 +353,7 @@ If the loan is disbursed mid-month, the first EMI includes a broken-period inter
   GST on Charge       =  Prepayment Charge  ×  18%
   Total Charge        =  Prepayment Charge  +  GST
 
-  Rates (TLB policy):
+  Rates (Alpha LMS policy):
     Band A: 2% of prepayment amount
     Band B: 2.5% of prepayment amount
     Band C: 3% of prepayment amount
@@ -443,7 +443,7 @@ If the loan is disbursed mid-month, the first EMI includes a broken-period inter
   Foreclosure Charge  =  OP × FC Rate
   GST on FC Charge    =  Foreclosure Charge × 18%
 
-  FC Rates (TLB policy):
+  FC Rates (Alpha LMS policy):
     Band A: 2%   |   Band B: 3%   |   Band C: 4%
     Surcharge +1% if closed within first 3 months of disbursal
 
@@ -921,5 +921,5 @@ If the loan is disbursed mid-month, the first EMI includes a broken-period inter
 
 ---
 
-*True Loan Bazaar (TLB) | Payment Flows & Calculations v1.0 | Confidential*
+*Alpha LMS | Payment Flows & Calculations v1.0 | Confidential*
 *Compliant with RBI Digital Lending Guidelines 2022 · RBI Fair Practice Code · NPCI · CGST Act 2017 · Income Tax Act (TDS)*

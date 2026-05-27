@@ -1,4 +1,4 @@
-# High-Level Design — Loan Management System (LMS)
+# High-Level Design — Alpha LMS
 ## Post-Disbursal Lifecycle
 
 > **Scope:** This document describes the architecture, modules, integrations, and compliance framework of the LMS only.

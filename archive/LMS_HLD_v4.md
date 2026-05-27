@@ -1,5 +1,5 @@
-# High-Level Design — Loan Management System (LMS) v3
-## True Loan Bazaar (TLB) — Post-Disbursal Lifecycle
+# High-Level Design — Alpha LMS v3
+## Alpha LMS — Post-Disbursal Lifecycle
 
 > **Version:** 4.0 | **Previous version:** LMS_HLD_v3.md
 > **Changes in v4:** master table seed data · composite indexes · loan_ledger partitioning DDL · standardised API error envelope · loan_account_number sequence DDL
