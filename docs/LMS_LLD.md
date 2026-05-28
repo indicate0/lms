@@ -1184,6 +1184,64 @@ CREATE INDEX idx_noc_queue_pending
 
 ---
 
+### 2.30 `payment_allocation_schemes`
+
+Defines the waterfall order for payment allocation per product type. Each row is one step in the sequence; the engine applies steps in ascending `step_order`. This replaces the hardcoded priority order in §4.4 and allows per-product overrides (e.g. a bullet-loan product may prioritise principal before interest).
+
+```sql
+payment_allocation_schemes (
+  id               UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id        UUID         NOT NULL REFERENCES tenants(id),
+
+  product_type     VARCHAR(50)  NOT NULL,
+    -- 'emi_loan' | 'bullet_loan' | 'revolving_credit' | 'bnpl' etc.
+    -- Must match loans.product_type
+
+  step_order       SMALLINT     NOT NULL,
+    -- 1 = first bucket to drain
+
+  bucket           VARCHAR(30)  NOT NULL,
+    -- 'penalty' | 'bounce' | 'interest' | 'principal'
+    -- 'overdue_interest' | 'overdue_principal' (treat overdue separately)
+
+  description      VARCHAR(200),
+    -- Human-readable label for audit trails / UI
+
+  is_active        BOOLEAN      NOT NULL DEFAULT TRUE,
+
+  created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT uq_scheme_step UNIQUE (tenant_id, product_type, step_order),
+  CONSTRAINT uq_scheme_bucket UNIQUE (tenant_id, product_type, bucket)
+);
+
+CREATE INDEX idx_alloc_scheme_lookup
+  ON payment_allocation_schemes (tenant_id, product_type, step_order ASC)
+  WHERE is_active = TRUE;
+```
+
+**Seed data — default Alpha LMS waterfall (mirrors RBI Fair Practice Code):**
+
+```sql
+INSERT INTO payment_allocation_schemes
+  (tenant_id, product_type, step_order, bucket, description)
+VALUES
+  ('<default_tenant>', 'emi_loan', 1, 'penalty',            'Penal charges + GST (oldest first)'),
+  ('<default_tenant>', 'emi_loan', 2, 'bounce',             'Bounce charges + GST'),
+  ('<default_tenant>', 'emi_loan', 3, 'overdue_interest',   'Overdue EMI interest (oldest first)'),
+  ('<default_tenant>', 'emi_loan', 4, 'overdue_principal',  'Overdue EMI principal (oldest first)'),
+  ('<default_tenant>', 'emi_loan', 5, 'interest',           'Current EMI interest'),
+  ('<default_tenant>', 'emi_loan', 6, 'principal',          'Current EMI principal'),
+
+  ('<default_tenant>', 'bullet_loan', 1, 'penalty',         'Penal charges + GST'),
+  ('<default_tenant>', 'bullet_loan', 2, 'bounce',          'Bounce charges + GST'),
+  ('<default_tenant>', 'bullet_loan', 3, 'principal',       'Principal (bullet loans: principal before interest)'),
+  ('<default_tenant>', 'bullet_loan', 4, 'interest',        'Accrued interest');
+```
+
+---
+
 ### 2.27 `job_execution_logs`
 
 Each background cron job writes one row on start and updates it on completion. Used for cron health monitoring and replay decisions.
@@ -1841,7 +1899,9 @@ function priorDayNotification():
 
 ### 4.4 Payment Posting & Allocation Engine
 
-Priority order for payment allocation (RBI Fair Practice Code mandates):
+The waterfall order is **not hardcoded** — it is driven by the `payment_allocation_schemes` table (§2.30), keyed on `loans.product_type`. This allows each product to define its own priority sequence without a code change.
+
+Default waterfall for `emi_loan` (RBI Fair Practice Code):
 1. Penal charges + GST (oldest first)
 2. Bounce charges + GST
 3. Interest (oldest overdue first)
@@ -1861,7 +1921,7 @@ Priority order for payment allocation (RBI Fair Practice Code mandates):
 //   → DPD continues to accrue while any amount is in suspense
 //
 // If amount >= minimum_due but < full EMI:
-//   → Allocate per priority order below
+//   → Allocate per waterfall scheme for this product_type
 //   → Mark installment status = 'partial'
 //   → DPD reduces to 0 ONLY when installment is fully settled
 //
@@ -1878,6 +1938,21 @@ function postPayment(loan_id, amount, channel, utr_ref):
 
   // Lock loan row for update (prevent race conditions)
   LOCK loans WHERE id = loan_id FOR UPDATE
+
+  loan = SELECT * FROM loans WHERE id = loan_id
+
+  // Load per-product allocation scheme (falls back to 'emi_loan' if not found)
+  scheme = SELECT bucket FROM payment_allocation_schemes
+             WHERE tenant_id = loan.tenant_id
+               AND product_type = COALESCE(loan.product_type, 'emi_loan')
+               AND is_active = TRUE
+             ORDER BY step_order ASC
+  IF scheme IS EMPTY:
+    scheme = SELECT bucket FROM payment_allocation_schemes
+               WHERE tenant_id = loan.tenant_id
+                 AND product_type = 'emi_loan'
+                 AND is_active = TRUE
+               ORDER BY step_order ASC
 
   // Check for existing suspense balance — combine with incoming
   suspense = SELECT * FROM payment_suspense
@@ -1909,31 +1984,37 @@ function postPayment(loan_id, amount, channel, utr_ref):
   FOR EACH installment IN outstanding_installments:
     IF remaining <= 0: BREAK
 
-    // Step 1: Settle penalty
-    penalty_due = installment.penalty_amt + installment.penalty_gst - waived
-    IF penalty_due > 0:
-      settled = MIN(remaining, penalty_due)
-      allocation.penalty += settled
-      remaining -= settled
+    // Apply buckets in the order defined by this product's allocation scheme
+    FOR EACH step IN scheme:
+      IF remaining <= 0: BREAK
 
-    // Step 2: Settle bounce charges
-    bounce_due = installment.bounce_charge + installment.bounce_gst
-    IF bounce_due > 0:
-      settled = MIN(remaining, bounce_due)
-      allocation.bounce += settled
-      remaining -= settled
+      IF step.bucket = 'penalty':
+        due = installment.penalty_amt + installment.penalty_gst - waived
+        IF due > 0:
+          settled = MIN(remaining, due)
+          allocation.penalty += settled
+          remaining -= settled
 
-    // Step 3: Settle interest
-    IF remaining > 0:
-      settled = MIN(remaining, installment.interest_amt)
-      allocation.interest += settled
-      remaining -= settled
+      ELSE IF step.bucket = 'bounce':
+        due = installment.bounce_charge + installment.bounce_gst
+        IF due > 0:
+          settled = MIN(remaining, due)
+          allocation.bounce += settled
+          remaining -= settled
 
-    // Step 4: Settle principal
-    IF remaining > 0:
-      settled = MIN(remaining, installment.principal_amt)
-      allocation.principal += settled
-      remaining -= settled
+      ELSE IF step.bucket IN ('interest', 'overdue_interest'):
+        due = installment.interest_amt
+        IF due > 0:
+          settled = MIN(remaining, due)
+          allocation.interest += settled
+          remaining -= settled
+
+      ELSE IF step.bucket IN ('principal', 'overdue_principal'):
+        due = installment.principal_amt
+        IF due > 0:
+          settled = MIN(remaining, due)
+          allocation.principal += settled
+          remaining -= settled
 
     // Mark installment status
     IF installment.balance_due <= 0:
@@ -1952,8 +2033,9 @@ function postPayment(loan_id, amount, channel, utr_ref):
     total_bounce_charges  -= allocation.bounce,
     total_paid            += amount
 
-  // Ledger entries
-  INSERT loan_ledger(entry_type='payment_received', credit=amount, ...)
+  // Ledger entries — record scheme used for auditability
+  INSERT loan_ledger(entry_type='payment_received', credit=amount,
+                     allocation_scheme=loan.product_type, ...)
 
   // Check if loan is fully paid
   IF loan.outstanding_principal <= 0.01:
@@ -1962,7 +2044,8 @@ function postPayment(loan_id, amount, channel, utr_ref):
   // Update DPD
   recalculateDPD(loan_id)
 
-  PUBLISH EVENT: 'payment_received', { loan_id, amount, allocation }
+  PUBLISH EVENT: 'payment_received', { loan_id, amount, allocation,
+                                        allocation_scheme: loan.product_type }
 ```
 
 ---
@@ -2856,7 +2939,7 @@ Reconciliation report → regulatory_reports table (monthly)
 | 5 | RBI Penal Charges Circular (Jan 2024) | No capitalisation of penal interest | Penalty tracked separately; never added to principal |
 | 6 | RBI Floating Rate Reset Circular (Aug 2023) | Customer must be notified and given choice (EMI vs tenure change) on rate reset | `rate_reset_requests` table; 14-day consent window; `loan.rate_reset` event; mandate amendment if EMI changes |
 | 7 | RBI NPA Norms | 90-day overdue = NPA; 180-day = sub-standard; provisioning required | `npa_classifier` cron; `npa_provisioning` table |
-| 8 | RBI Fair Practice Code | Payment allocation: charges → interest → principal order | `postPayment()` allocation logic |
+| 8 | RBI Fair Practice Code | Payment allocation: charges → interest → principal order | `postPayment()` reads waterfall from `payment_allocation_schemes` (§2.30); default seed enforces RBI order |
 | 9 | RBI Fair Practice Code | Annual / periodic account statement free of charge | `GET /:id/statement` endpoint; first copy free |
 | 10 | RBI Fair Practice Code | NOC within 30 days of loan closure (7 days for digital lending) | `noc_generation_queue` with 72-hr SLA |
 | 11 | RBI NBFC Directions 2016 | Monthly bureau reporting (CIBIL / Equifax / Experian) | `monthlyBureauReporting()` on 5th of month |
@@ -2961,3 +3044,145 @@ LMS endpoint GET /loans/:id/kfs:
 | LMS → Redis | Direct | DPD cache; rate-limit keys; idempotency store |
 | Grievance Service → LMS | Inbound REST | `GET /dispute-summary`, `GET /ledger`, `GET /bureau-status`, `POST /waiver` |
 | LMS → Grievance Service | Event publish | `reconciliation.mismatch`, `loan.closed`, `noc.generated`, `payment.received` |
+
+---
+
+## 15. Logging & Observability
+
+### 15.1 Structured Application Logging
+
+Alpha LMS uses **structlog** to emit newline-delimited JSON logs to stdout. Every log record includes:
+
+| Field | Description |
+|---|---|
+| `timestamp` | ISO-8601 UTC |
+| `level` | `debug` / `info` / `warning` / `error` / `critical` |
+| `logger` | Python module path (e.g., `src.services.payment_service`) |
+| `service` | Always `alpha-lms` |
+| `request_id` | X-Request-Id from the API gateway; propagated via a Python `ContextVar` |
+| `event` | Human-readable event name (snake_case) |
+| Additional fields | Contextual key-value pairs specific to the event |
+
+**Configuration** (`.env`):
+```
+LOG_LEVEL=INFO        # DEBUG | INFO | WARNING | ERROR
+LOG_JSON=true         # false = coloured dev output; true = JSON for Loki/CloudWatch
+```
+
+**Sensitive field masking** — the `_mask_event` structlog processor automatically redacts PAN and Aadhaar numbers from all log messages before emission. Plaintext PAN/Aadhaar is never written to logs (RBI IT Framework §6.3).
+
+**Request-ID propagation** — the FastAPI `request_id_middleware` reads or generates `X-Request-Id` on every incoming request, stores it in `request_id_ctx` (a `ContextVar`), and returns it in the response header. All log records and audit_logs rows written during that request carry the same `request_id`.
+
+### 15.2 Compliance Audit Trail (`audit_logs` table)
+
+Every financial state change writes an INSERT-only row to `audit_logs` (§2.27). This fulfils:
+- **RBI IT Framework for NBFCs (2017)** — comprehensive audit trail; 7-year retention
+- **RBI Fair Practices Code** — every modification to a loan account is attributable to an actor
+
+| Event | Action value | Actor Role | Triggered by |
+|---|---|---|---|
+| Loan created | `loan_created` | `system` | LOS disbursed event |
+| Payment posted | `payment_posted` | `system` | Payment API / webhook |
+| Bounce recorded | `bounce_recorded` | `system` | eNACH / UPI webhook |
+| Loan foreclosed | `loan_foreclosed` | `system` | Foreclosure API |
+| NPA classified | `npa_classified` | `system` | DPD cron (auto-trigger at DPD > 90) |
+| NPA upgraded | `npa_upgraded` | `system` | NPA upgrade cron (§4.16) |
+| Write-off initiated | `write_off_initiated` | `credit_manager` | Admin API |
+| Write-off approved | `write_off_approved` | `admin` | Admin API (board resolution ref mandatory) |
+| Recovery posted | `recovery_posted` | `admin` | Admin API |
+| NOC generated | `noc_generated` | `system` | NOC queue cron |
+
+**System actor UUID** — cron-initiated changes use the reserved UUID `00000000-0000-0000-0000-000000000001` with `actor_role = 'system'`.
+
+**payload_before / payload_after** — state-changing operations capture the relevant before/after fields as JSONB. The fields captured are sufficient to reconstruct the change without querying application logs.
+
+### 15.3 Log Levels by Event Category
+
+| Category | Level | Rationale |
+|---|---|---|
+| Cron job completed (interest, DPD, penalty, NOC) | `INFO` | Normal operational heartbeat |
+| Loan created, payment posted, foreclosure closed | `INFO` | Key financial lifecycle events |
+| Bounce recorded, NPA classified | `WARNING` | Degraded account state; needs attention |
+| NPA upgrade with no active mandate | `WARNING` | Ops team must provision a new mandate |
+| LMSError (validation, not-found, duplicate) | `WARNING` | Client-side errors; not actionable by ops |
+| Unhandled exception | `ERROR` (with stack trace) | Engineering alert |
+
+### 15.4 Cron Job Observability
+
+Every cron endpoint returns a JSON summary logged at `INFO`:
+```json
+{ "processed": 412, "date": "2026-05-28" }
+```
+For NPA upgrade:
+```json
+{
+  "upgraded": 3,
+  "skipped_not_cleared": 18,
+  "skipped_no_clearance_date": 4,
+  "skipped_quarter_not_met": 11
+}
+```
+These summaries are suitable for ingestion into Grafana dashboards via Loki label selectors on the `event` field.
+
+### 15.5 Child Logger Pattern (Bound Context)
+
+Service functions bind loan-level context so all subsequent log calls within that scope automatically include it — no need to pass `loan_id` to every call:
+
+```python
+# In a service function
+log = get_logger(__name__)
+
+async def process_payment(session, loan_id, ...):
+    bound = log.bind(loan_id=str(loan_id), tenant_id=str(tenant_id))
+    bound.info("payment_allocation_start", amount=str(amount))
+    # ... processing ...
+    bound.info("payment_posted", status=payment.status)
+```
+
+The `bind()` creates a new logger instance with those fields merged into every record it emits. The base `log` object is unaffected. Use this pattern for any function that loops over loans (cron jobs) so each iteration's logs carry the right `loan_id`.
+
+### 15.6 Kafka / Event Publishing Logs
+
+Every Kafka publish (or SQS send) is logged at `INFO` with the topic name and a stable `event_type` field. Failed publishes are logged at `ERROR` and the event is written to the dead-letter queue:
+
+```python
+log.info("kafka_published", topic="loan.disbursed", loan_id=str(loan.id))
+log.error("kafka_publish_failed", topic="npa.upgraded", loan_id=str(loan.id), error=str(e))
+```
+
+Kafka consumer processing (inbound events like `loan.disbursed` from LOS) logs at `INFO` on receipt and after successful processing:
+```python
+log.info("kafka_event_received",  topic="loan.disbursed", partition=msg.partition, offset=msg.offset)
+log.info("kafka_event_processed", topic="loan.disbursed", loan_id=str(loan.id), duration_ms=elapsed)
+```
+
+Consumer lag and DLQ depth are monitored via Grafana dashboards (not application logs).
+
+### 15.7 Application Lifecycle Logs
+
+Logged during the FastAPI `lifespan` context manager:
+
+```
+INFO  alpha_lms_started   env=development
+INFO  alpha_lms_shutdown
+```
+
+On startup failure (e.g., DB unreachable at boot), the unhandled exception surfaces via `CRITICAL` from the process supervisor. The `/ready` probe distinguishes runtime dependency failures from startup failures.
+
+### 15.8 Full Mandatory Field Reference
+
+| Field | Type | Always Present | Source |
+|---|---|---|---|
+| `timestamp` | ISO-8601 string | Yes | `TimeStamper(fmt="iso")` |
+| `level` | string | Yes | structlog `add_log_level` |
+| `logger` | string | Yes | structlog `add_logger_name` |
+| `service` | string | Yes | `_add_service` processor (`alpha-lms`) |
+| `request_id` | string or null | Yes | `_add_request_id` from `request_id_ctx` |
+| `event` | string | Yes | First positional arg to `log.info(...)` |
+| `loan_id` | UUID string | When loan-scoped | Passed explicitly or via `.bind()` |
+| `tenant_id` | UUID string | When loan-scoped | Passed explicitly or via `.bind()` |
+| `payment_id` | UUID string | Payment events | Passed explicitly |
+| `amount` | Decimal string | Financial events | Never a float — always `str(Decimal)` |
+| `exc_info` | bool / Exception | Error records | Passed to `log.exception(...)` |
+
+**Amounts are always logged as strings from `Decimal` objects**, never as Python floats, to avoid floating-point representation artifacts in log searches.
